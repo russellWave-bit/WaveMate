@@ -1,0 +1,58 @@
+name: Build WaveMate
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Get the files
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unpack the zip if the project is still zipped
+        shell: pwsh
+        run: |
+          if (-not (Test-Path package.json)) {
+            $z = Get-ChildItem -Filter *.zip | Sort-Object LastWriteTime | Select-Object -Last 1
+            if ($null -eq $z) { Write-Host "No zip and no project here yet. Upload WaveMate.zip."; exit 1 }
+            Write-Host "unpacking $($z.Name)"
+            Expand-Archive -Path $z.FullName -DestinationPath . -Force
+            if (Test-Path WaveMate/package.json) { Copy-Item -Path WaveMate/* -Destination . -Recurse -Force }
+          }
+          Get-ChildItem | Select-Object Name
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        shell: pwsh
+        run: npm install --no-audit --no-fund
+
+      - name: Bundle the app code
+        shell: pwsh
+        run: npm run bundle
+
+      - name: Build WaveMate.exe
+        shell: pwsh
+        run: npx electron-builder --win portable --publish never
+
+      - name: List the result
+        shell: pwsh
+        run: Get-ChildItem release | Select-Object Name, Length
+
+      - name: Publish a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: WaveMate build ${{ github.run_number }}
+          files: release/WaveMate.exe
